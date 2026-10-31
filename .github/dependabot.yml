@@ -1,0 +1,13 @@
+# Keeps the workflows' commit-SHA pins (and their `# vN.N.N` comments) current: the repo
+# requires SHA pins, and this is what keeps a pin from becoming a freeze. Monthly: an action
+# version is not a security patch, and a vulnerable action gets a security update anyway.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 2
+    groups:
+      actions:
+        patterns: ['*']
