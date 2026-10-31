@@ -1,0 +1,74 @@
+name: ci-runner-infra
+
+# Builds ghcr.io/whi-hq/ci-runner-infra: upstream actions-runner plus Python 3.12 with
+# ansible-core and ansible-lint, yq, shellcheck, gitleaks, gnupg and PowerShell 7, at the pins
+# in ci-runner-infra/versions.env. All the logic is in ci-runner-infra/build.sh, which a local
+# run calls too; this file only decides when to build and whether to push.
+#
+# Triggers, and why each one exists:
+#   - a change to the pins, the Dockerfile or the script -> rebuild with the new inputs
+#   - weekly schedule -> Ubuntu security patches and the runner's own updates, which no pin
+#     covers
+#   - pull_request -> build and prove only, so a PR that bumps a pin shows a red check before
+#     merge if a checksum, a pinned version or a tool's smoke check fails
+#
+# Two jobs, never both in one run: `prove` (pull requests) holds a read-only token and no
+# secrets; `publish` (main, schedule, dispatch) is the only job with `packages: write`. No
+# `pull_request_target` anywhere: a pull request's code never runs with a write token.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ci-runner-infra/**
+      - .github/workflows/ci-runner-infra.yml
+  pull_request:
+    paths:
+      - ci-runner-infra/**
+      - .github/workflows/ci-runner-infra.yml
+  schedule:
+    - cron: "45 6 * * 1"   # Mondays 06:45 UTC, after ci-runner-node
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-runner-infra-${{ github.ref }}
+  # A superseded PR build is cancelled; a build on main or on the schedule runs to
+  # completion so every main commit that changed the inputs gets its image.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  prove:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build and prove offline
+        run: ci-runner-infra/build.sh "ci-runner-infra:pr-${{ github.event.number }}"
+
+  publish:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Tag = UTC build time + commit: the time sorts (a consumer's image policy can order on
+      # it numerically), the commit says which pins built it.
+      - name: Build and prove offline
+        run: |
+          image="ghcr.io/whi-hq/ci-runner-infra:$(date -u +%Y%m%d%H%M%S)-${GITHUB_SHA::7}"
+          echo "IMAGE=$image" >> "$GITHUB_ENV"
+          ci-runner-infra/build.sh "$image"
+
+      - name: Push
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker push "$IMAGE"
+          echo "pushed $IMAGE" >> "$GITHUB_STEP_SUMMARY"

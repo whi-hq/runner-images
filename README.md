@@ -8,6 +8,7 @@ Each image bakes in what its jobs would otherwise download on every run.
 | Image | Contents |
 |---|---|
 | [`ghcr.io/whi-hq/ci-runner-node`](ci-runner-node/) | Node 24 in the runner tool cache (`actions/setup-node` finds it), pnpm, Chromium and its system libraries for Playwright |
+| [`ghcr.io/whi-hq/ci-runner-infra`](ci-runner-infra/) | Python 3.12 with ansible-core and ansible-lint in a runner-writable venv, yq, shellcheck, gitleaks, gnupg, PowerShell 7 LTS. Ansible collections are not baked: install them at job time |
 
 ## Tags
 
